@@ -14,9 +14,10 @@ use ssz_types::{
     typenum::{U1099511627776, U16777216, U2048, U4, U65536, U8192},
     BitVector, FixedVector, VariableList,
 };
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-use super::execution_payload_header::ExecutionPayloadHeader;
+use super::{beacon_block::BeaconBlock, execution_payload_header::ExecutionPayloadHeader};
 use crate::{
     attestation::Attestation,
     attestation_data::AttestationData,
@@ -580,5 +581,38 @@ impl BeaconState {
             }
         }
         Ok((rewards, penalties))
+    }
+
+    pub fn process_block_header(mut self, block: BeaconBlock) -> anyhow::Result<()> {
+        ensure!(
+            self.slot == block.slot,
+            "State slot must be equal to block slot"
+        );
+        ensure!(
+            block.slot > self.latest_block_header.slot,
+            "Block slot must be greater than latest block header slot of state"
+        );
+        ensure!(
+            block.proposer_index == self.get_beacon_proposer_index().unwrap(),
+            "Block proposer index must be equal to beacon proposer index"
+        );
+        ensure!(
+            block.parent_root == self.latest_block_header.tree_hash_root(),
+            "Block Parent Root must be equal root of latest block header"
+        );
+
+        self.latest_block_header = BeaconBlockHeader {
+            slot: block.slot,
+            proposer_index: block.proposer_index,
+            parent_root: block.parent_root,
+            state_root: B256::default(), // Overwritten in the next process_slot call
+            body_root: block.body.tree_hash_root(),
+        };
+
+        // Verify proposer is not slashed
+        let proposer = &self.validators[block.proposer_index as usize];
+        ensure!(!proposer.slashed, "Block proposer must not be slashed");
+
+        Ok(())
     }
 }
