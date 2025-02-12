@@ -1609,6 +1609,63 @@ impl BeaconState {
 
         Ok(())
     }
+
+    /// Return the deltas for a given ``flag_index`` by scanning through the participation flags.
+    pub fn get_flag_index_deltas(&self, flag_index: u8) -> anyhow::Result<(Vec<u64>, Vec<u64>)> {
+        let mut rewards = vec![0; self.validators.len()];
+        let mut penalties = vec![0; self.validators.len()];
+
+        let previous_epoch = self.get_previous_epoch();
+        let unslashed_participating_indices =
+            self.get_unslashed_participating_indices(flag_index, previous_epoch)?;
+        let weight = PARTICIPATION_FLAG_WEIGHTS[flag_index as usize];
+        let unslashed_participating_balance =
+            self.get_total_balance(unslashed_participating_indices.clone());
+        let unslashed_participating_increments =
+            unslashed_participating_balance / EFFECTIVE_BALANCE_INCREMENT;
+        let active_increments = self.get_total_active_balance() / EFFECTIVE_BALANCE_INCREMENT;
+
+        for index in self.get_eligible_validator_indices()? {
+            let base_reward = self.get_base_reward(index);
+
+            if unslashed_participating_indices.contains(&index) {
+                if !self.is_in_inactivity_leak() {
+                    let reward_numerator =
+                        base_reward * weight * unslashed_participating_increments;
+                    rewards[index as usize] +=
+                        reward_numerator / (active_increments * WEIGHT_DENOMINATOR);
+                }
+            } else if flag_index != TIMELY_HEAD_FLAG_INDEX {
+                penalties[index as usize] += base_reward * weight / WEIGHT_DENOMINATOR;
+            }
+        }
+
+        Ok((rewards, penalties))
+    }
+
+    pub fn process_rewards_and_penalties(&mut self) -> anyhow::Result<()> {
+        // No rewards are applied at the end of `GENESIS_EPOCH` because rewards are for work done in
+        // the previous epoch
+        if self.get_current_epoch() == GENESIS_EPOCH {
+            return Ok(());
+        }
+
+        let mut deltas = vec![];
+        for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
+            deltas.push(self.get_flag_index_deltas(flag_index as u8)?);
+        }
+
+        deltas.push(self.get_inactivity_penalty_deltas()?);
+
+        for (rewards, penalties) in deltas {
+            for index in 0..self.validators.len() {
+                self.increase_balance(index as u64, rewards[index]);
+                self.decrease_balance(index as u64, penalties[index]);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Check if ``leaf`` at ``index`` verifies against the Merkle ``root`` and ``branch``.
