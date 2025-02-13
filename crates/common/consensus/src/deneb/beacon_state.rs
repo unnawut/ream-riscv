@@ -7,7 +7,7 @@ use std::{
 
 use alloy_primitives::{aliases::B32, Address, B256};
 use anyhow::{anyhow, bail, ensure};
-use blst::min_pk::PublicKey;
+use blst::min_pk::{AggregatePublicKey, PublicKey};
 use ethereum_hashing::{hash, hash_fixed};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -42,11 +42,12 @@ use crate::{
         DOMAIN_BLS_TO_EXECUTION_CHANGE, DOMAIN_DEPOSIT, DOMAIN_RANDAO, DOMAIN_SYNC_COMMITTEE,
         DOMAIN_VOLUNTARY_EXIT, EFFECTIVE_BALANCE_INCREMENT, EJECTION_BALANCE,
         EPOCHS_PER_ETH1_VOTING_PERIOD, EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR,
-        ETH1_ADDRESS_WITHDRAWAL_PREFIX, FAR_FUTURE_EPOCH, G2_POINT_AT_INFINITY, GENESIS_EPOCH,
-        GENESIS_SLOT, HYSTERESIS_DOWNWARD_MULTIPLIER, HYSTERESIS_QUOTIENT,
-        HYSTERESIS_UPWARD_MULTIPLIER, INACTIVITY_PENALTY_QUOTIENT_ALTAIR, INACTIVITY_SCORE_BIAS,
-        INACTIVITY_SCORE_RECOVERY_RATE, JUSTIFICATION_BITS_LENGTH, MAX_COMMITTEES_PER_SLOT,
-        MAX_DEPOSITS, MAX_EFFECTIVE_BALANCE, MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT, MAX_RANDOM_BYTE,
+        EPOCHS_PER_SYNC_COMMITTEE_PERIOD, ETH1_ADDRESS_WITHDRAWAL_PREFIX, FAR_FUTURE_EPOCH,
+        G2_POINT_AT_INFINITY, GENESIS_EPOCH, GENESIS_SLOT, HYSTERESIS_DOWNWARD_MULTIPLIER,
+        HYSTERESIS_QUOTIENT, HYSTERESIS_UPWARD_MULTIPLIER, INACTIVITY_PENALTY_QUOTIENT_ALTAIR,
+        INACTIVITY_SCORE_BIAS, INACTIVITY_SCORE_RECOVERY_RATE, JUSTIFICATION_BITS_LENGTH,
+        MAX_COMMITTEES_PER_SLOT, MAX_DEPOSITS, MAX_EFFECTIVE_BALANCE,
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT, MAX_RANDOM_BYTE,
         MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP, MAX_WITHDRAWALS_PER_PAYLOAD,
         MIN_ATTESTATION_INCLUSION_DELAY, MIN_EPOCHS_TO_INACTIVITY_PENALTY,
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT, MIN_GENESIS_TIME, MIN_PER_EPOCH_CHURN_LIMIT,
@@ -1666,7 +1667,32 @@ impl BeaconState {
                 self.decrease_balance(index as u64, penalties[index]);
             }
         }
+        Ok(())
+    }
 
+    /// Return the next sync committee, with possible pubkey duplicates.
+    pub fn get_next_sync_committee(&self) -> anyhow::Result<SyncCommittee> {
+        let indices = self.get_next_sync_committee_indices()?;
+        let mut pubkeys = vec![];
+
+        for index in indices {
+            pubkeys.push(self.validators[index as usize].pubkey.clone());
+        }
+
+        let aggregate_pubkey = eth_aggregate_pubkeys(&pubkeys.iter().collect::<Vec<_>>())?;
+
+        Ok(SyncCommittee {
+            pubkeys: FixedVector::from(pubkeys),
+            aggregate_pubkey: aggregate_pubkey.into(),
+        })
+    }
+
+    pub fn process_sync_committee_updates(&mut self) -> anyhow::Result<()> {
+        let next_epoch = self.get_current_epoch() + 1;
+        if next_epoch % EPOCHS_PER_SYNC_COMMITTEE_PERIOD == 0 {
+            self.current_sync_committee = self.next_sync_committee.clone();
+            self.next_sync_committee = Arc::new(self.get_next_sync_committee()?);
+        }
         Ok(())
     }
 }
@@ -1741,4 +1767,25 @@ pub fn eth_fast_aggregate_verify(
         sig.fast_aggregate_verify(true, message, DST, &public_keys.iter().collect::<Vec<_>>())
             == blst::BLST_ERROR::BLST_SUCCESS,
     )
+}
+
+/// Return the aggregate public key for the public keys in ``pubkeys``.
+/// NOTE: the ``+`` operation should be interpreted as elliptic curve point addition, which takes as
+/// input elliptic curve points that must be decoded from the input ``BLSPubkey``s.
+/// This implementation is for demonstrative purposes only and ignores encoding/decoding concerns.
+/// Refer to the BLS signature draft standard for more information.
+pub fn eth_aggregate_pubkeys(pubkeys: &[&PubKey]) -> anyhow::Result<PublicKey> {
+    ensure!(!pubkeys.is_empty(), "Public keys list cannot be empty");
+
+    let pubkeys = pubkeys
+        .iter()
+        .map(|public_key| {
+            PublicKey::from_bytes(&public_key.inner)
+                .map_err(|err| anyhow!("Failed to decode public key {err:?}"))
+        })
+        .collect::<anyhow::Result<Vec<PublicKey>>>()?;
+    let aggregate_public_key =
+        AggregatePublicKey::aggregate(&pubkeys.iter().collect::<Vec<_>>(), true)
+            .map_err(|err| anyhow!("Failed to aggregate and validate public keys {err:?}"))?;
+    Ok(aggregate_public_key.to_public_key())
 }
