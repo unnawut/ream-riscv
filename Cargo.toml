@@ -25,7 +25,9 @@ rust-version = "1.81.0"
 version = "0.1.0"
 
 [workspace.dependencies]
+alloy-consensus = { version = "0.11.1", default-features = false }
 alloy-primitives = { version = "0.8", features = ['serde'] }
+alloy-rlp = { version = "0.3.8", default-features = false, features = ["derive"] }
 anyhow = "1.0"
 blst = "0.3"
 kzg = { git = "https://github.com/grandinetech/rust-kzg" }

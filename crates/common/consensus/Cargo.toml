@@ -10,7 +10,9 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+alloy-consensus.workspace = true
 alloy-primitives.workspace = true
+alloy-rlp.workspace = true
 anyhow.workspace = true
 blst.workspace = true
 kzg.workspace = true
