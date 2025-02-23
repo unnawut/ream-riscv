@@ -1,5 +1,5 @@
 [package]
-name = "ream-consensus"
+name = "ream-bls"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -10,27 +10,19 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-alloy-consensus.workspace = true
 alloy-primitives.workspace = true
-alloy-rlp.workspace = true
 anyhow.workspace = true
-kzg.workspace = true
-ethereum_hashing.workspace = true
-ethereum_serde_utils.workspace = true
+bls12_381 = { git = "https://github.com/zkcrypto/bls12_381", rev = "9ea427c0eb1a7e2ac16902a322aea156c496ddb0", optional = true, features = ["experimental"] } # latest commit on 2024-06-22, which is the base commit of sp1-patches
+blst = { version = "0.3", optional = true }
 ethereum_ssz.workspace = true
 ethereum_ssz_derive.workspace = true
-itertools.workspace = true
-jsonwebtoken.workspace = true
-reqwest.workspace = true
-rstest.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-serde_yaml.workspace = true
-snap.workspace = true
+sha2 = { version = "0.10.8", optional = true }
 ssz_types.workspace = true
-tokio.workspace = true
+thiserror.workspace = true
 tree_hash.workspace = true
 tree_hash_derive.workspace = true
 
-# ream dependencies
-ream-bls.workspace = true
+[features]
+supranational = ["blst"]
+zkcrypto = ["bls12_381", "sha2"]

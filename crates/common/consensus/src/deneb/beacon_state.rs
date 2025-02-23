@@ -7,10 +7,13 @@ use std::{
 
 use alloy_primitives::{aliases::B32, Address, B256};
 use anyhow::{anyhow, bail, ensure};
-use blst::min_pk::{AggregatePublicKey, PublicKey};
 use ethereum_hashing::{hash, hash_fixed};
 use itertools::Itertools;
 use kzg::eth::c_bindings::KZGCommitment;
+use ream_bls::{
+    traits::{Aggregatable, Verifiable},
+    AggregatePubKey, BLSSignature, PubKey,
+};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
@@ -44,11 +47,10 @@ use crate::{
         DOMAIN_VOLUNTARY_EXIT, EFFECTIVE_BALANCE_INCREMENT, EJECTION_BALANCE,
         EPOCHS_PER_ETH1_VOTING_PERIOD, EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR,
         EPOCHS_PER_SYNC_COMMITTEE_PERIOD, ETH1_ADDRESS_WITHDRAWAL_PREFIX, FAR_FUTURE_EPOCH,
-        G2_POINT_AT_INFINITY, GENESIS_EPOCH, GENESIS_SLOT, HYSTERESIS_DOWNWARD_MULTIPLIER,
-        HYSTERESIS_QUOTIENT, HYSTERESIS_UPWARD_MULTIPLIER, INACTIVITY_PENALTY_QUOTIENT_ALTAIR,
-        INACTIVITY_SCORE_BIAS, INACTIVITY_SCORE_RECOVERY_RATE, JUSTIFICATION_BITS_LENGTH,
-        MAX_COMMITTEES_PER_SLOT, MAX_DEPOSITS, MAX_EFFECTIVE_BALANCE,
-        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT, MAX_RANDOM_BYTE,
+        GENESIS_EPOCH, GENESIS_SLOT, HYSTERESIS_DOWNWARD_MULTIPLIER, HYSTERESIS_QUOTIENT,
+        HYSTERESIS_UPWARD_MULTIPLIER, INACTIVITY_PENALTY_QUOTIENT_ALTAIR, INACTIVITY_SCORE_BIAS,
+        INACTIVITY_SCORE_RECOVERY_RATE, JUSTIFICATION_BITS_LENGTH, MAX_COMMITTEES_PER_SLOT,
+        MAX_DEPOSITS, MAX_EFFECTIVE_BALANCE, MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT, MAX_RANDOM_BYTE,
         MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP, MAX_WITHDRAWALS_PER_PAYLOAD,
         MIN_ATTESTATION_INCLUSION_DELAY, MIN_EPOCHS_TO_INACTIVITY_PENALTY,
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT, MIN_GENESIS_TIME, MIN_PER_EPOCH_CHURN_LIMIT,
@@ -70,16 +72,12 @@ use crate::{
     },
     predicates::is_slashable_attestation_data,
     proposer_slashing::ProposerSlashing,
-    pubkey::PubKey,
-    signature::BlsSignature,
     sync_aggregate::SyncAggregate,
     sync_committee::SyncCommittee,
     validator::Validator,
     voluntary_exit::SignedVoluntaryExit,
     withdrawal::Withdrawal,
 };
-
-pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct BeaconState {
@@ -327,41 +325,22 @@ impl BeaconState {
             return Ok(false);
         }
 
-        // Collect public keys of attesting validators
-        let pubkeys: Vec<_> = indices
-            .iter()
-            .filter_map(|&i| self.validators.get(i).map(|v| v.pubkey.clone()))
-            .collect();
-
-        // Compute domain and signing root
         let domain = self.get_domain(
             DOMAIN_BEACON_ATTESTER,
             Some(indexed_attestation.data.target.epoch),
         );
-
-        let sig = blst::min_pk::Signature::from_bytes(&indexed_attestation.signature.signature)
-            .map_err(|err| anyhow!("Signarure conversion failed:{:?}", err))?;
         let signing_root = compute_signing_root(&indexed_attestation.data, domain);
 
-        let publickeys = pubkeys
-            .iter()
-            .map(|key| {
-                blst::min_pk::PublicKey::from_bytes(&key.inner)
-                    .map_err(|e| anyhow!(format!("Public key conversion failed:{:?}", e)))
-            })
-            .collect::<Result<Vec<blst::min_pk::PublicKey>, _>>()?;
-
-        let verification_result = sig.fast_aggregate_verify(
-            true,
-            signing_root.as_ref(),
-            DST,
-            publickeys.iter().collect::<Vec<_>>().as_slice(),
-        );
-
-        Ok(matches!(
-            verification_result,
-            blst::BLST_ERROR::BLST_SUCCESS
-        ))
+        indexed_attestation
+            .signature
+            .fast_aggregate_verify(
+                indices
+                    .iter()
+                    .filter_map(|&i| self.validators.get(i).map(|v| &v.pubkey))
+                    .collect::<Vec<_>>(),
+                signing_root.as_ref(),
+            )
+            .map_err(|e| anyhow!("Invalid indexed attestation: {:?}", e))
     }
 
     /// Return the set of attesting indices corresponding to ``data`` and ``bits``.
@@ -816,7 +795,7 @@ impl BeaconState {
         pubkey: PubKey,
         withdrawal_credentials: B256,
         amount: u64,
-        signature: BlsSignature,
+        signature: BLSSignature,
     ) -> anyhow::Result<()> {
         let mut validator_pubkeys = vec![];
         for validator in &self.validators {
@@ -832,16 +811,13 @@ impl BeaconState {
             };
             let domain = compute_domain(DOMAIN_DEPOSIT, None, None); // # Fork-agnostic domain since deposits are valid across forks
             let signing_root = compute_signing_root(deposit_message, domain);
-            let sig = blst::min_pk::Signature::from_bytes(&signature.signature)
-                .map_err(|err| anyhow!("Failed to convert signiture type {err:?}"))?;
-            let public_key = match PublicKey::from_bytes(&pubkey.inner) {
-                Ok(pk) => pk,
-                Err(_) => return Ok(()), // Skip deposits with invalid public keys
-            };
-            let verification_result =
-                sig.verify(true, signing_root.as_ref(), DST, &[], &public_key, false);
-            if verification_result == blst::BLST_ERROR::BLST_SUCCESS {
-                self.add_validator_to_registry(pubkey, withdrawal_credentials, amount)?;
+
+            match signature.verify(&pubkey, signing_root.as_ref()) {
+                Ok(true) => {
+                    self.add_validator_to_registry(pubkey, withdrawal_credentials, amount)?
+                }
+                // Skip adding validator if either pubkey or signature is invalid
+                _ => return Ok(()),
             }
         } else {
             // Increase balance by deposit amount
@@ -888,7 +864,7 @@ impl BeaconState {
         ensure!(&validator.withdrawal_credentials[..1] == BLS_WITHDRAWAL_PREFIX);
         ensure!(
             validator.withdrawal_credentials[1..]
-                == hash(&address_change.from_bls_pubkey.inner)[1..]
+                == hash(address_change.from_bls_pubkey.to_bytes())[1..]
         );
 
         // Fork-agnostic domain since address changes are valid across forks
@@ -899,14 +875,10 @@ impl BeaconState {
         );
 
         let signing_root = compute_signing_root(address_change, domain);
-        let sig = blst::min_pk::Signature::from_bytes(&signed_address_change.signature.signature)
-            .map_err(|err| anyhow!("Failed to convert signiture type {err:?}"))?;
-        let public_key = PublicKey::from_bytes(&address_change.from_bls_pubkey.inner)
-            .map_err(|err| anyhow!("Failed to convert pubkey type {err:?}"))?;
-        let verification_result =
-            sig.verify(true, signing_root.as_ref(), DST, &[], &public_key, false);
         ensure!(
-            verification_result == blst::BLST_ERROR::BLST_SUCCESS,
+            signed_address_change
+                .signature
+                .verify(&address_change.from_bls_pubkey, signing_root.as_ref())?,
             "BLS Signature verification failed!"
         );
 
@@ -975,18 +947,10 @@ impl BeaconState {
         );
         let signing_root = compute_signing_root(voluntary_exit, domain);
 
-        let sig = blst::min_pk::Signature::from_bytes(&signed_voluntary_exit.signature.signature)
-            .map_err(|err| {
-            anyhow!("Failed to convert signature to blst Signature type, {err:?}")
-        })?;
-        let public_key = PublicKey::from_bytes(&validator.pubkey.inner)
-            .map_err(|err| anyhow!("Failed to convert pubkey to blst PublicKey type, {err:?}"))?;
-
-        let verification_result =
-            sig.verify(true, signing_root.as_ref(), DST, &[], &public_key, false);
-
         ensure!(
-            verification_result == blst::BLST_ERROR::BLST_SUCCESS,
+            signed_voluntary_exit
+                .signature
+                .verify(&validator.pubkey, signing_root.as_ref())?,
             "BLS Signature verification failed!"
         );
 
@@ -1064,17 +1028,10 @@ impl BeaconState {
 
             let signing_root = compute_signing_root(&signed_header.message, domain);
 
-            let sig = blst::min_pk::Signature::from_bytes(&signed_header.signature.signature)
-                .map_err(|err| anyhow!("Unable to retrieve BLS Signature from byets, {:?}", err))?;
-
-            let public_key = PublicKey::from_bytes(&proposer.pubkey.inner)
-                .map_err(|err| anyhow!("Unable to convert PublicKey, {:?}", err))?;
-
-            let verification_result =
-                sig.verify(true, signing_root.as_ref(), DST, &[], &public_key, false);
-
             ensure!(
-                verification_result == blst::BLST_ERROR::BLST_SUCCESS,
+                signed_header
+                    .signature
+                    .verify(&proposer.pubkey, signing_root.as_ref())?,
                 "BLS Signature verification failed!"
             );
         }
@@ -1161,13 +1118,14 @@ impl BeaconState {
         let signing_root =
             compute_signing_root(self.get_block_root_at_slot(previous_slot)?, domain);
 
-        let is_valid = eth_fast_aggregate_verify(
-            &participant_pubkeys,
-            signing_root,
-            &sync_aggregate.sync_committee_signature,
-        )?;
-
-        ensure!(is_valid, "Sync aggregate signature verification failed.");
+        ensure!(
+            eth_fast_aggregate_verify(
+                &participant_pubkeys,
+                signing_root,
+                &sync_aggregate.sync_committee_signature,
+            )?,
+            "Sync aggregate signature verification failed."
+        );
 
         // Compute participant and proposer rewards
         let total_active_increments = self.get_total_active_balance() / EFFECTIVE_BALANCE_INCREMENT;
@@ -1347,22 +1305,16 @@ impl BeaconState {
         {
             let signing_root =
                 compute_signing_root(epoch, self.get_domain(DOMAIN_RANDAO, Some(epoch)));
-            let sig = blst::min_pk::Signature::from_bytes(&body.randao_reveal.signature)
-                .map_err(|err| anyhow!("Signarure conversion failed:{:?}", err))?;
-            let public_key = blst::min_pk::PublicKey::from_bytes(&proposer.pubkey.inner)
-                .map_err(|err| anyhow!("PublicKey conversion failed:{:?}", err))?;
-            let verification_result =
-                sig.verify(true, signing_root.as_ref(), DST, &[], &public_key, false);
-
             ensure!(
-                matches!(verification_result, blst::BLST_ERROR::BLST_SUCCESS),
-                "RANDAO reveal signature verification failed"
+                body.randao_reveal
+                    .verify(&proposer.pubkey, signing_root.as_ref())?,
+                "BLS Signature verification failed!"
             );
 
             // Mix in RANDAO reveal
             let mix = xor(
                 self.get_randao_mix(epoch).as_slice(),
-                hash(&body.randao_reveal.signature).as_slice(),
+                hash(body.randao_reveal.to_bytes()).as_slice(),
             );
             self.randao_mixes[(epoch % EPOCHS_PER_HISTORICAL_VECTOR) as usize] = mix;
         }
@@ -1559,22 +1511,11 @@ impl BeaconState {
             signed_block.message,
             self.get_domain(DOMAIN_BEACON_PROPOSER, None),
         );
-        let sig = blst::min_pk::Signature::from_bytes(&signed_block.signature.signature).map_err(
-            |err| {
-                anyhow!(
-                    "Failed to convert signature to BLS Signature type, {:?}",
-                    err
-                )
-            },
-        )?;
-        let public_key = PublicKey::from_bytes(&proposer.pubkey.inner)
-            .map_err(|err| anyhow!("Failed to convert pubkey to BLS PublicKey type, {:?}", err))?;
-        let verification_result =
-            sig.verify(true, signing_root.as_ref(), DST, &[], &public_key, false);
-        Ok(matches!(
-            verification_result,
-            blst::BLST_ERROR::BLST_SUCCESS
-        ))
+
+        signed_block
+            .signature
+            .verify(&proposer.pubkey, signing_root.as_ref())
+            .map_err(|e| anyhow!("Invalid block signature: {:?}", e))
     }
 
     /// Check if ``validator`` is eligible for activation.
@@ -1701,7 +1642,7 @@ impl BeaconState {
 
         Ok(SyncCommittee {
             pubkeys: FixedVector::from(pubkeys),
-            aggregate_pubkey: aggregate_pubkey.into(),
+            aggregate_pubkey,
         })
     }
 
@@ -1762,29 +1703,15 @@ pub fn get_validator_from_deposit(
 pub fn eth_fast_aggregate_verify(
     pubkeys: &[&PubKey],
     message: B256,
-    signature: &BlsSignature,
+    signature: &BLSSignature,
 ) -> anyhow::Result<bool> {
-    if pubkeys.is_empty() && *signature == G2_POINT_AT_INFINITY {
+    if pubkeys.is_empty() && *signature == BLSSignature::infinity() {
         return Ok(true);
     }
 
-    let public_keys: Vec<blst::min_pk::PublicKey> = pubkeys
-        .iter()
-        .map(|key| {
-            blst::min_pk::PublicKey::from_bytes(&key.inner)
-                .map_err(|err| anyhow!("Could not parse public key: {err:?}"))
-        })
-        .collect::<Result<_, _>>()?;
-
-    let sig = blst::min_pk::Signature::from_bytes(&signature.signature)
-        .map_err(|err| anyhow!("Could not parse signature: {err:?}"))?;
-
-    let message = message.as_ref();
-
-    Ok(
-        sig.fast_aggregate_verify(true, message, DST, &public_keys.iter().collect::<Vec<_>>())
-            == blst::BLST_ERROR::BLST_SUCCESS,
-    )
+    signature
+        .fast_aggregate_verify(pubkeys, message.as_ref())
+        .map_err(|e| anyhow!("Failed to verify fast aggregate: {:?}", e))
 }
 
 /// Return the aggregate public key for the public keys in ``pubkeys``.
@@ -1792,20 +1719,11 @@ pub fn eth_fast_aggregate_verify(
 /// input elliptic curve points that must be decoded from the input ``BLSPubkey``s.
 /// This implementation is for demonstrative purposes only and ignores encoding/decoding concerns.
 /// Refer to the BLS signature draft standard for more information.
-pub fn eth_aggregate_pubkeys(pubkeys: &[&PubKey]) -> anyhow::Result<PublicKey> {
+pub fn eth_aggregate_pubkeys(pubkeys: &[&PubKey]) -> anyhow::Result<PubKey> {
     ensure!(!pubkeys.is_empty(), "Public keys list cannot be empty");
 
-    let pubkeys = pubkeys
-        .iter()
-        .map(|public_key| {
-            PublicKey::from_bytes(&public_key.inner)
-                .map_err(|err| anyhow!("Failed to decode public key {err:?}"))
-        })
-        .collect::<anyhow::Result<Vec<PublicKey>>>()?;
-    let aggregate_public_key =
-        AggregatePublicKey::aggregate(&pubkeys.iter().collect::<Vec<_>>(), true)
-            .map_err(|err| anyhow!("Failed to aggregate and validate public keys {err:?}"))?;
-    Ok(aggregate_public_key.to_public_key())
+    let aggregate_pubkey = AggregatePubKey::aggregate(pubkeys)?;
+    Ok(aggregate_pubkey.to_pubkey())
 }
 
 pub fn kzg_commitment_to_versioned_hash(kzg_commitment: &KZGCommitment) -> B256 {

@@ -1,4 +1,5 @@
 use alloy_primitives::B256;
+use ream_bls::BLSSignature;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
@@ -11,13 +12,13 @@ use super::execution_payload::ExecutionPayload;
 use crate::{
     attestation::Attestation, attester_slashing::AttesterSlashing,
     bls_to_execution_change::SignedBLSToExecutionChange, deposit::Deposit, eth_1_data::Eth1Data,
-    kzg_commitment::KzgCommitment, proposer_slashing::ProposerSlashing, signature::BlsSignature,
+    kzg_commitment::KzgCommitment, proposer_slashing::ProposerSlashing,
     sync_aggregate::SyncAggregate, voluntary_exit::SignedVoluntaryExit,
 };
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct BeaconBlockBody {
-    pub randao_reveal: BlsSignature,
+    pub randao_reveal: BLSSignature,
 
     /// Eth1 data vote
     pub eth1_data: Eth1Data,

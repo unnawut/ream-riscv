@@ -1,14 +1,13 @@
 use alloy_primitives::B256;
+use ream_bls::BLSSignature;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
-use crate::signature::BlsSignature;
-
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct SignedBeaconBlockHeader {
     pub message: BeaconBlockHeader,
-    pub signature: BlsSignature,
+    pub signature: BLSSignature,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
