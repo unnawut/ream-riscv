@@ -9,7 +9,11 @@ use anyhow::anyhow;
 use jsonwebtoken::{encode, get_current_timestamp, EncodingKey, Header};
 use new_payload_request::NewPayloadRequest;
 use reqwest::{Client, Request};
-use rpc_types::{engine_get_payloadv1::PayloadV3, eth_syncing::EthSyncing};
+use rpc_types::{
+    eth_syncing::EthSyncing, execution_payload::ExecutionPayloadV3, get_payload::PayloadV3,
+    payload_status::PayloadStatusV1,
+};
+use serde_json::json;
 use transaction::{BlobTransaction, TransactionType};
 use utils::{strip_prefix, Claims, JsonRpcRequest, JsonRpcResponse};
 
@@ -105,7 +109,7 @@ impl ExecutionEngine {
             id: 1,
             jsonrpc: "2.0".to_string(),
             method: "engine_exchangeCapabilities".to_string(),
-            params: vec![serde_json::json!(capabilities)],
+            params: vec![json!(capabilities)],
         };
 
         let http_post_request = self.build_request(request_body)?;
@@ -123,7 +127,7 @@ impl ExecutionEngine {
             id: 1,
             jsonrpc: "2.0".to_string(),
             method: "engine_getPayloadV3".to_string(),
-            params: vec![serde_json::json!(payload_id)],
+            params: vec![json!(payload_id)],
         };
 
         let http_post_request = self.build_request(request_body)?;
@@ -132,6 +136,33 @@ impl ExecutionEngine {
             .execute(http_post_request)
             .await?
             .json::<JsonRpcResponse<PayloadV3>>()
+            .await?
+            .to_result()
+    }
+
+    pub async fn engine_new_payloadv3(
+        &self,
+        execution_payload: ExecutionPayloadV3,
+        expected_blob_versioned_hashes: Vec<B256>,
+        parent_beacon_block_root: B256,
+    ) -> anyhow::Result<PayloadStatusV1> {
+        let request_body = JsonRpcRequest {
+            id: 1,
+            jsonrpc: "2.0".to_string(),
+            method: "engine_newPayloadV3".to_string(),
+            params: vec![
+                json!(execution_payload),
+                json!(expected_blob_versioned_hashes),
+                json!(parent_beacon_block_root),
+            ],
+        };
+
+        let http_post_request = self.build_request(request_body)?;
+
+        self.http_client
+            .execute(http_post_request)
+            .await?
+            .json::<JsonRpcResponse<PayloadStatusV1>>()
             .await?
             .to_result()
     }
