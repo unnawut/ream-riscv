@@ -10,7 +10,10 @@ use jsonwebtoken::{encode, get_current_timestamp, EncodingKey, Header};
 use new_payload_request::NewPayloadRequest;
 use reqwest::{Client, Request};
 use rpc_types::{
-    eth_syncing::EthSyncing, execution_payload::ExecutionPayloadV3, get_payload::PayloadV3,
+    eth_syncing::EthSyncing,
+    execution_payload::ExecutionPayloadV3,
+    forkchoice_update::{ForkchoiceStateV1, ForkchoiceUpdateResult, PayloadAttributesV3},
+    get_payload::PayloadV3,
     payload_status::PayloadStatusV1,
 };
 use serde_json::json;
@@ -104,7 +107,11 @@ impl ExecutionEngine {
     }
 
     pub async fn engine_exchange_capabilities(&self) -> anyhow::Result<Vec<String>> {
-        let capabilities: Vec<String> = vec![];
+        let capabilities: Vec<String> = vec![
+            "engine_getPayloadV3".to_string(),
+            "engine_newPayloadV3".to_string(),
+            "engine_forkchoiceUpdatedV3".to_string(),
+        ];
         let request_body = JsonRpcRequest {
             id: 1,
             jsonrpc: "2.0".to_string(),
@@ -122,7 +129,7 @@ impl ExecutionEngine {
             .to_result()
     }
 
-    pub async fn engine_get_payloadv3(&self, payload_id: B64) -> anyhow::Result<PayloadV3> {
+    pub async fn engine_get_payload_v3(&self, payload_id: B64) -> anyhow::Result<PayloadV3> {
         let request_body = JsonRpcRequest {
             id: 1,
             jsonrpc: "2.0".to_string(),
@@ -140,7 +147,7 @@ impl ExecutionEngine {
             .to_result()
     }
 
-    pub async fn engine_new_payloadv3(
+    pub async fn engine_new_payload_v3(
         &self,
         execution_payload: ExecutionPayloadV3,
         expected_blob_versioned_hashes: Vec<B256>,
@@ -163,6 +170,28 @@ impl ExecutionEngine {
             .execute(http_post_request)
             .await?
             .json::<JsonRpcResponse<PayloadStatusV1>>()
+            .await?
+            .to_result()
+    }
+
+    pub async fn engine_forkchoice_updated_v3(
+        &self,
+        forkchoice_state: ForkchoiceStateV1,
+        payload_attributes: Option<PayloadAttributesV3>,
+    ) -> anyhow::Result<ForkchoiceUpdateResult> {
+        let request_body = JsonRpcRequest {
+            id: 1,
+            jsonrpc: "2.0".to_string(),
+            method: "engine_forkchoiceUpdatedV3".to_string(),
+            params: vec![json!(forkchoice_state), json!(payload_attributes)],
+        };
+
+        let http_post_request = self.build_request(request_body)?;
+
+        self.http_client
+            .execute(http_post_request)
+            .await?
+            .json::<JsonRpcResponse<ForkchoiceUpdateResult>>()
             .await?
             .to_result()
     }
