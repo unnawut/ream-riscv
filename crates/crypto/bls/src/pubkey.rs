@@ -5,7 +5,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum, FixedVector};
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, PartialEq, Clone, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Encode, Decode, TreeHash, Default)]
 pub struct PubKey {
     pub inner: FixedVector<u8, typenum::U48>,
 }
@@ -29,5 +29,11 @@ impl<'de> Deserialize<'de> for PubKey {
         let result = hex::decode(&result).map_err(serde::de::Error::custom)?;
         let key = FixedVector::from(result);
         Ok(Self { inner: key })
+    }
+}
+
+impl PubKey {
+    pub fn to_bytes(&self) -> &[u8] {
+        self.inner.iter().as_slice()
     }
 }

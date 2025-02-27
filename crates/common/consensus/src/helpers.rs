@@ -10,12 +10,7 @@ use crate::{
         store::Store,
     },
     misc::compute_epoch_at_slot,
-    validator::Validator,
 };
-
-pub fn is_active_validator(validator: &Validator, epoch: u64) -> bool {
-    validator.activation_eligibility_epoch <= epoch && epoch < validator.exit_epoch
-}
 
 pub fn get_total_balance(state: &BeaconState, indices: Vec<u64>) -> u64 {
     let sum = indices
@@ -24,7 +19,7 @@ pub fn get_total_balance(state: &BeaconState, indices: Vec<u64>) -> u64 {
             state
                 .validators
                 .get(index as usize)
-                .unwrap()
+                .expect("Couldn't find index invalidators")
                 .effective_balance
         })
         .sum();
@@ -47,7 +42,7 @@ pub fn get_proposer_score(store: Store) -> u64 {
     let justified_checkpoint_state = store
         .checkpoint_states
         .get(&store.justified_checkpoint)
-        .unwrap();
+        .expect("Failed to find checkpoint in checkpoint states");
     let committee_weight =
         get_total_active_balance(justified_checkpoint_state.clone()) / SLOTS_PER_EPOCH;
     (committee_weight * PROPOSER_SCORE_BOOST) / 100
@@ -97,4 +92,12 @@ pub fn get_voting_source(store: &Store, block_root: B256) -> Checkpoint {
         let head_state = &store.block_states[&block_root];
         head_state.current_justified_checkpoint
     }
+}
+
+pub fn xor<T: AsRef<[u8]>>(bytes_1: T, bytes_2: T) -> B256 {
+    let mut result: B256 = B256::default();
+    for i in 0..32 {
+        result[i] = bytes_1.as_ref()[i] ^ bytes_2.as_ref()[i];
+    }
+    result
 }

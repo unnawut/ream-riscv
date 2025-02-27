@@ -1,6 +1,6 @@
 #![cfg(feature = "ef-tests")]
 
-use ef_tests::test_consensus_type;
+use ef_tests::{test_consensus_type, test_operation, test_shuffling, utils};
 use ream_consensus::{
     attestation::Attestation,
     attestation_data::AttestationData,
@@ -23,6 +23,7 @@ use ream_consensus::{
     historical_batch::HistoricalBatch,
     historical_summary::HistoricalSummary,
     indexed_attestation::IndexedAttestation,
+    misc::compute_shuffled_index,
     proposer_slashing::ProposerSlashing,
     signing_data::SigningData,
     sync_aggregate::SyncAggregate,
@@ -32,6 +33,7 @@ use ream_consensus::{
     withdrawal::Withdrawal,
 };
 
+// Testing consensus types
 test_consensus_type!(Attestation);
 test_consensus_type!(AttestationData);
 test_consensus_type!(AttesterSlashing);
@@ -61,3 +63,42 @@ test_consensus_type!(SyncCommittee);
 test_consensus_type!(Validator);
 test_consensus_type!(VoluntaryExit);
 test_consensus_type!(Withdrawal);
+
+// Testing operations for block processing
+test_operation!(attestation, Attestation, "attestation", process_attestation);
+test_operation!(
+    attester_slashing,
+    AttesterSlashing,
+    "attester_slashing",
+    process_attester_slashing
+);
+test_operation!(block_header, BeaconBlock, "block", process_block_header);
+test_operation!(
+    bls_to_execution_change,
+    SignedBLSToExecutionChange,
+    "address_change",
+    process_bls_to_execution_change
+);
+test_operation!(deposit, Deposit, "deposit", process_deposit);
+test_operation!(execution_payload, BeaconBlockBody, "body");
+test_operation!(
+    proposer_slashing,
+    ProposerSlashing,
+    "proposer_slashing",
+    process_proposer_slashing
+);
+test_operation!(
+    voluntary_exit,
+    SignedVoluntaryExit,
+    "voluntary_exit",
+    process_voluntary_exit
+);
+test_operation!(
+    withdrawals,
+    ExecutionPayload,
+    "execution_payload",
+    process_withdrawals
+);
+
+// Testing shuffling
+test_shuffling!();

@@ -6,7 +6,9 @@ use ethereum_hashing::hash;
 use tree_hash::TreeHash;
 
 use crate::{
-    fork_choice::helpers::constants::{MAX_SEED_LOOKAHEAD, SHUFFLE_ROUND_COUNT, SLOTS_PER_EPOCH},
+    fork_choice::helpers::constants::{
+        GENESIS_FORK_VERSION, MAX_SEED_LOOKAHEAD, SHUFFLE_ROUND_COUNT, SLOTS_PER_EPOCH,
+    },
     fork_data::ForkData,
     signing_data::SigningData,
 };
@@ -20,20 +22,22 @@ pub fn compute_signing_root<SSZObject: TreeHash>(ssz_object: SSZObject, domain: 
 }
 
 pub fn compute_shuffled_index(
-    index: usize,
+    mut index: usize,
     index_count: usize,
     seed: B256,
 ) -> anyhow::Result<usize> {
     ensure!(index < index_count, "Index must be less than index_count");
-    let mut index = index;
     for round in 0..SHUFFLE_ROUND_COUNT {
         let seed_with_round = [seed.as_slice(), &round.to_le_bytes()].concat();
         let pivot = bytes_to_int64(&hash(&seed_with_round)[..]) % index_count as u64;
 
         let flip = (pivot as usize + (index_count - index)) % index_count;
         let position = max(index, flip);
-        let seed_with_position =
-            [seed_with_round.as_slice(), &(position / 256).to_le_bytes()].concat();
+        let seed_with_position = [
+            seed_with_round.as_slice(),
+            &(position / 256).to_le_bytes()[0..4],
+        ]
+        .concat();
         let source = hash(&seed_with_position);
         let byte = source[(position % 256) / 8];
         let bit = (byte >> (position % 8)) % 2;
@@ -94,12 +98,17 @@ pub fn compute_domain(
     domain_type: B32,
     fork_version: Option<B32>,
     genesis_validators_root: Option<B256>,
-) -> anyhow::Result<B256> {
+) -> B256 {
     let fork_data = ForkData {
-        current_version: fork_version.unwrap_or_default(),
+        current_version: fork_version.unwrap_or(GENESIS_FORK_VERSION), /* Fork version for
+                                                                        * Ethereum mainnet */
         genesis_validators_root: genesis_validators_root.unwrap_or_default(),
     };
     let fork_data_root = fork_data.compute_fork_data_root();
     let domain_bytes = [&domain_type.0, &fork_data_root.0[..28]].concat();
-    Ok(B256::from_slice(&domain_bytes))
+    B256::from_slice(&domain_bytes)
+}
+
+pub fn is_sorted_and_unique(indices: &[usize]) -> bool {
+    indices.windows(2).all(|w| w[0] < w[1])
 }

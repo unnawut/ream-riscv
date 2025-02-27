@@ -1,3 +1,5 @@
+#![warn(clippy::unwrap_used)]
+
 pub mod attestation;
 pub mod attestation_data;
 pub mod attester_slashing;
@@ -7,7 +9,9 @@ pub mod checkpoint;
 pub mod deneb;
 pub mod deposit;
 pub mod deposit_data;
+pub mod deposit_message;
 pub mod eth_1_data;
+pub mod execution_engine;
 pub mod fork;
 pub mod fork_choice;
 pub mod fork_data;
@@ -20,8 +24,6 @@ pub mod misc;
 pub mod pending_attestation;
 pub mod predicates;
 pub mod proposer_slashing;
-pub mod pubkey;
-pub mod signature;
 pub mod signing_data;
 pub mod sync_aggregate;
 pub mod sync_committee;
