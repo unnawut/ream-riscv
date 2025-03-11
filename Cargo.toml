@@ -55,13 +55,15 @@ serde_json = "1.0.139"
 serde_yaml = "0.9"
 snap = "1.1"
 ssz_types = "0.10"
+ssz_rs = { git = "https://github.com/unnawut/ssz-rs.git", branch = "ssz_types", package = "ssz_rs"}
+ssz_rs_derive = { git = "https://github.com/unnawut/ssz-rs.git", branch = "ssz_types", package = "ssz_rs_derive"}
 thiserror = "2.0.11"
 tokio = { version = "1.42", features = ["rt", "rt-multi-thread", "sync", "signal", "time", "macros"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tree_hash = "0.9"
 tree_hash_derive = "0.9"
-
+typenum = "1.12"
 
 # ream dependencies
 ream-bls = { path = "crates/crypto/bls", features = ["zkcrypto"] } # Default feature is zkcrypto

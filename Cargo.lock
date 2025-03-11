@@ -3810,8 +3810,11 @@ dependencies = [
  "blst",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "ream-types",
  "serde",
  "sha2 0.10.8",
+ "ssz_rs",
+ "ssz_rs_derive",
  "ssz_types",
  "thiserror 2.0.11",
  "tree_hash",
@@ -4608,6 +4611,30 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "ssz_rs"
+version = "0.9.0"
+source = "git+https://github.com/unnawut/ssz-rs.git?branch=ssz_types#6c593c9ab979e2a3fc9800dff57d8e7080a43d4f"
+dependencies = [
+ "alloy-primitives",
+ "bitvec",
+ "serde",
+ "sha2 0.9.9",
+ "ssz_rs_derive",
+ "ssz_types",
+ "typenum",
+]
+
+[[package]]
+name = "ssz_rs_derive"
+version = "0.9.0"
+source = "git+https://github.com/unnawut/ssz-rs.git?branch=ssz_types#6c593c9ab979e2a3fc9800dff57d8e7080a43d4f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

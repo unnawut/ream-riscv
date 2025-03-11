@@ -15,6 +15,7 @@ use ream_bls::{
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_rs::prelude::*;
 use ssz_types::{
     typenum::{U1099511627776, U16777216, U2048, U4, U65536, U8192},
     BitVector, FixedVector, VariableList,
@@ -80,7 +81,7 @@ use crate::{
     withdrawal::Withdrawal,
 };
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize, Encode, Decode, TreeHash, SimpleSerialize)]
 pub struct BeaconState {
     // Versioning
     pub genesis_time: u64,

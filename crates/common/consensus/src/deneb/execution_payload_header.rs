@@ -1,13 +1,14 @@
 use alloy_primitives::{Address, B256, U256};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_rs::prelude::*;
 use ssz_types::{
     serde_utils::{hex_fixed_vec, hex_var_list},
     typenum, FixedVector, VariableList,
 };
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize, Encode, Decode, TreeHash, SimpleSerialize)]
 pub struct ExecutionPayloadHeader {
     // Execution block header fields
     pub parent_hash: B256,

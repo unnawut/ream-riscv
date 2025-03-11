@@ -3,9 +3,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum, FixedVector};
+use ssz_rs::prelude::*;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, PartialEq, Clone, Encode, Decode, TreeHash, Default)]
+#[derive(Debug, PartialEq, Clone, Encode, Decode, TreeHash, Default, SimpleSerialize)]
 pub struct BLSSignature {
     pub inner: FixedVector<u8, typenum::U96>,
 }
